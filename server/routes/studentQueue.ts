@@ -309,7 +309,10 @@ router.patch('/tokens/:tokenId/cancel', (req: AuthRequest, res: Response) => {
     `).run(tokenId);
 
     if (token.counter_id && token.service_id) {
-       socketService.emitQueueUpdated(token.service_id, { counterId: token.counter_id });
+      // Notify the queue updated (for staff dashboard refresh)
+      socketService.emitQueueUpdated(token.service_id, { counterId: token.counter_id });
+      // Notify the specific cancellation (fixes #6 — student UI can react immediately)
+      socketService.emitTokenCancelled(token.service_id, token.counter_id, tokenId);
     }
 
     res.json({ success: true, message: 'Token cancelled successfully' });
