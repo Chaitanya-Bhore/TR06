@@ -1,0 +1,89 @@
+name: Integration CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  integration:
+    name: Full Application Integration
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -------------------------
+      # Node.js Setup
+      # -------------------------
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      # -------------------------
+      # Isolated Database Setup
+      # -------------------------
+      - name: Initialize isolated database
+        env:
+          DB_PATH: ${{ runner.temp }}/queuecraft-integration.db
+        run: npm run seed
+
+      # -------------------------
+      # Real Integration Test
+      # -------------------------
+      - name: Run real HTTP integration smoke test
+        env:
+          DB_PATH: ${{ runner.temp }}/queuecraft-integration.db
+          PORT: 5001
+        run: npm run test:integration
+
+      # -------------------------
+      # Database Validation
+      # -------------------------
+      - name: Verify database integrity
+        env:
+          DB_PATH: ${{ runner.temp }}/queuecraft-integration.db
+        run: |
+          node --input-type=module <<'EOF'
+          import Database from 'better-sqlite3';
+
+          const db = new Database(process.env.DB_PATH);
+
+          const integrity = db.pragma('integrity_check', {
+            simple: true
+          });
+
+          if (integrity !== 'ok') {
+            console.error(
+              `SQLite integrity check failed: ${integrity}`
+            );
+            process.exit(1);
+          }
+
+          const foreignKeys =
+            db.prepare('PRAGMA foreign_key_check').all();
+
+          if (foreignKeys.length > 0) {
+            console.error('Foreign key violations detected:');
+            console.error(foreignKeys);
+            process.exit(1);
+          }
+
+          console.log('Application database integrity: PASS');
+          console.log('Foreign key integrity: PASS');
+
+          db.close();
+          EOF
+
+      - name: Integration completed
+        run: echo "Full application integration checks passed."
